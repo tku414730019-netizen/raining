@@ -44,10 +44,10 @@
   --level-5: #ef4444;
 
   /* ── Layout ── */
-  --toolbar-h:  60px;
-  --statbar-h:  64px;
-  --filterbar-h:44px;
-  --footer-h:   32px;
+  --toolbar-h:  78px;
+  --statbar-h:  82px;
+  --filterbar-h:57px;
+  --footer-h:   42px;
 }
 
 html, body {
@@ -99,14 +99,14 @@ html, body {
 #toolbar-left { display: flex; align-items: center; }
 
 #title-block h1 {
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--teal-600);
   letter-spacing: 0.01em;
   line-height: 1.2;
 }
 #title-block p {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--txt-muted);
   font-family: 'Share Tech Mono', monospace;
   letter-spacing: 0.05em;
@@ -120,13 +120,13 @@ html, body {
 
 /* Search input */
 #search-input {
-  height: 32px;
-  padding: 0 12px;
+  height: 42px;
+  padding: 0 15px;
   background: #fff;
   border: 1.5px solid var(--border);
   border-radius: 6px;
   font-family: 'Nunito', sans-serif;
-  font-size: 12px;
+  font-size: 16px;
   color: var(--txt-primary);
   outline: none;
   width: 140px;
@@ -141,13 +141,13 @@ html, body {
 
 /* Sort select */
 #sort-select {
-  height: 32px;
-  padding: 0 10px;
+  height: 42px;
+  padding: 0 12px;
   background: #fff;
   border: 1.5px solid var(--border);
   border-radius: 6px;
   font-family: 'Nunito', sans-serif;
-  font-size: 12px;
+  font-size: 16px;
   color: var(--txt-secondary);
   outline: none;
   cursor: pointer;
@@ -157,13 +157,13 @@ html, body {
 
 /* Refresh button */
 #refresh-btn {
-  height: 32px;
-  padding: 0 14px;
+  height: 42px;
+  padding: 0 18px;
   background: var(--teal-500);
   border: none;
   border-radius: 6px;
   font-family: 'Nunito', sans-serif;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   color: #fff;
   cursor: pointer;
@@ -185,7 +185,7 @@ html, body {
   padding: 0 10px;
   border-radius: 13px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -226,19 +226,19 @@ html, body {
 }
 .stat-val {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 20px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--teal-600);
   line-height: 1;
 }
 .stat-lbl {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--txt-muted);
   margin-top: 3px;
   font-family: 'Nunito', sans-serif;
 }
 .stat-sub {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--teal-500);
   font-family: 'Share Tech Mono', monospace;
   margin-top: 1px;
@@ -259,14 +259,14 @@ html, body {
   min-width: 90px;
 }
 #countdown-label {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--txt-muted);
   font-family: 'Share Tech Mono', monospace;
   letter-spacing: 0.04em;
 }
 #countdown-val {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 14px;
+  font-size: 18px;
   color: var(--sky-500);
   line-height: 1.2;
 }
@@ -306,7 +306,7 @@ html, body {
 #filter-bar::-webkit-scrollbar { display: none; }
 
 .filter-label {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--txt-muted);
   font-family: 'Share Tech Mono', monospace;
   white-space: nowrap;
@@ -314,14 +314,14 @@ html, body {
 }
 
 .chip {
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 13px;
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 17px;
   border: 1.5px solid var(--chip-color, var(--border));
   background: transparent;
   color: var(--chip-color, var(--txt-secondary));
   font-family: 'Nunito', 'Noto Sans TC', sans-serif;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -340,7 +340,7 @@ html, body {
 .chip-all { --chip-color: var(--teal-500); }
 
 #error-msg {
-  font-size: 10px;
+  font-size: 13px;
   color: #b45309;
   background: #fffbeb;
   border: 1px solid #fcd34d;
@@ -359,7 +359,7 @@ html, body {
   position: fixed;
   top: calc(var(--toolbar-h) + var(--statbar-h) + var(--filterbar-h));
   left: 0; right: 0;
-  bottom: calc(var(--footer-h) + 44px);  /* 44px = #view-toggle-bar height */
+  bottom: calc(var(--footer-h) + 57px);  /* 57px = #view-toggle-bar height */
   overflow: hidden;
   z-index: 1;   /* 明確低於 toggle-bar (z-index:101) */
 }
@@ -384,7 +384,7 @@ html, body {
   box-shadow: 0 8px 28px var(--shadow-lg);
   z-index: 300;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--txt-secondary);
   line-height: 1.8;
   min-width: 170px;
@@ -393,7 +393,7 @@ html, body {
 #tooltip.hidden { display: none; }
 #tt-name {
   font-family: 'Nunito', 'Noto Sans TC', sans-serif;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--txt-primary);
   margin-bottom: 4px;
@@ -417,7 +417,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 13px;
   color: var(--txt-xmuted);
   font-family: 'Share Tech Mono', monospace;
   letter-spacing: 0.04em;
@@ -453,13 +453,13 @@ html, body {
 .loader-text {
   margin-top: 16px;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 12px;
+  font-size: 16px;
   color: var(--teal-600);
   letter-spacing: 0.08em;
 }
 .loader-sub {
   margin-top: 6px;
-  font-size: 10px;
+  font-size: 13px;
   color: var(--txt-muted);
   font-family: 'Share Tech Mono', monospace;
 }
@@ -522,7 +522,7 @@ html, body {
   padding: 3px 14px 3px 10px;
   border-radius: 20px;
   font-family: 'Share Tech Mono', monospace;  /* 整體統一 mono 字型 */
-  font-size: 11px;
+  font-size: 14px;
   white-space: nowrap;
   transition: background 0.3s, color 0.3s;
   flex-shrink: 0;
@@ -547,18 +547,18 @@ html, body {
   50%       { opacity: 0.65; }
 }
 
-.dt-icon  { font-size: 11px; flex-shrink: 0; }
+.dt-icon  { font-size: 14px; flex-shrink: 0; }
 .dt-label {
   font-family: 'Share Tech Mono', monospace;  /* 明確繼承，不被 Noto Sans 覆蓋 */
   color: var(--txt-muted);
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 .dt-sep   { color: var(--txt-xmuted); user-select: none; }   /* 分隔線 | */
 .dt-time  { font-weight: 600; letter-spacing: 0.04em; }
 .dt-ago   {
   opacity: 0.72;
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 .dt-ago::before { content: '('; }
@@ -571,14 +571,14 @@ html, body {
   position: fixed;
   top: calc(var(--toolbar-h) + var(--statbar-h) + var(--filterbar-h));
   left: 0; right: 0;
-  bottom: calc(var(--footer-h) + 44px);  /* 44px = toggle-bar height */
+  bottom: calc(var(--footer-h) + 57px);  /* 57px = toggle-bar height */
   z-index: 50;  /* 高於 canvas-wrap(1)，低於 toggle-bar(101) */
 }
 #map-wrap.hidden { display: none; }
 
 /* Override Leaflet attribution to fit theme */
 .leaflet-control-attribution {
-  font-size: 9px !important;
+  font-size: 12px !important;
   background: rgba(255,255,255,0.75) !important;
 }
 
@@ -589,7 +589,7 @@ html, body {
   border-radius: 10px;
   box-shadow: 0 6px 20px rgba(20,184,166,0.18);
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
+  font-size: 14px;
   color: #3d6a6a;
   padding: 0;
 }
@@ -599,7 +599,7 @@ html, body {
 .rain-popup-inner { padding: 10px 14px; line-height: 1.8; }
 .rain-popup-name  {
   font-family: 'Noto Sans TC', sans-serif;
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
   color: #1e3a3a;
   margin-bottom: 4px;
@@ -618,7 +618,7 @@ html, body {
   position: fixed;
   bottom: var(--footer-h);
   left: 0; right: 0;
-  height: 44px;
+  height: 57px;
   background: var(--bg-panel);
   border-top: 2px solid var(--teal-200, #99e4e0);
   display: flex;
@@ -632,14 +632,14 @@ html, body {
 }
 
 .view-btn {
-  height: 30px;
-  padding: 0 20px;
+  height: 39px;
+  padding: 0 24px;
   border-radius: 15px;
   border: 1.5px solid var(--border);
   background: transparent;
   color: var(--txt-secondary);
   font-family: 'Nunito', 'Noto Sans TC', sans-serif;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -659,7 +659,7 @@ html, body {
   color: #fff;
   box-shadow: 0 3px 10px rgba(20,184,166,0.30);
 }
-.vb-icon { font-size: 13px; }
+.vb-icon { font-size: 17px; }
 
 /* canvas-wrap bottom already set in main definition */
 
@@ -677,3 +677,17 @@ html, body {
 .rain-tooltip.leaflet-tooltip-top::before {
   border-top-color: #c5e8e6;
 }
+
+/* Force demo mode badge */
+.badge-force-demo {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1.5px solid #93c5fd;
+}
+#status-badge {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s, transform 0.1s;
+}
+#status-badge:hover { opacity: 0.82; transform: scale(0.97); }
+#status-badge:active { transform: scale(0.93); }
