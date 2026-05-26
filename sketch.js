@@ -26,12 +26,37 @@
 // ─────────────────────────────────────────────────────────────
 //  CONSTANTS
 // ─────────────────────────────────────────────────────────────
-const API_URL =
+// 原始 API（wic.gov.taipei 沒有 CORS header，瀏覽器直接呼叫必然失敗）
+const API_URL_DIRECT =
   'https://wic.gov.taipei/OpenData/API/Rain/Get' +
   '?stationNo=&loginId=open_rain&dataKey=85452C1D';
 
+// ── CORS Proxy 清單（依序嘗試，任一成功即停止）──────────────────
+// 每個 proxy 的包裝方式不同，故各自有 buildUrl + unwrap 函式
+const PROXY_LIST = [
+  {
+    name: 'corsproxy.io',
+    buildUrl: (target) => 'https://corsproxy.io/?' + encodeURIComponent(target),
+    unwrap:   async (resp) => resp.json(),  // 直接回傳原始 JSON
+  },
+  {
+    name: 'allorigins.win',
+    buildUrl: (target) => 'https://api.allorigins.win/get?url=' + encodeURIComponent(target),
+    // allorigins 把原始 body 包在 { contents: "..." } 裡
+    unwrap: async (resp) => {
+      const wrapper = await resp.json();
+      return JSON.parse(wrapper.contents);
+    },
+  },
+  {
+    name: 'htmldriven cors-proxy',
+    buildUrl: (target) => 'https://cors-proxy.htmldriven.com/?url=' + encodeURIComponent(target),
+    unwrap:   async (resp) => resp.json(),
+  },
+];
+
 const REFRESH_SEC  = 300;   // auto-refresh every 5 minutes
-const API_TIMEOUT  = 10000; // 10 s fetch timeout
+const API_TIMEOUT  = 9000;  // 每個 proxy 最多等 9 秒
 const GAUGE_MAX_MM = 30;    // full-bar = 30 mm
 const CARD_MIN_W   = 192;
 const CARD_H       = 130;
@@ -136,57 +161,98 @@ function currentTimeStr() {
 
 // ─────────────────────────────────────────────────────────────
 //  DATA FETCH
+//
+//  策略：串接 CORS Proxy 清單，依序嘗試直到成功。
+//  流程：
+//    1. 逐一試 PROXY_LIST 中的 proxy
+//       ├─ 成功 → 解析資料，isLive = true，停止輪詢
+//       └─ 失敗（逾時 / CORS / HTTP 錯誤）→ 繼續試下一個
+//    2. 全部失敗 → fallback 示範資料，isLive = false
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * fetchViaProxy(proxy)
+ * 透過單一 proxy 取得資料，逾時或錯誤時拋例外。
+ * @param  {Object} proxy  PROXY_LIST 中的一項
+ * @returns {Array}        正規化後的 station 陣列
+ */
+async function fetchViaProxy(proxy) {
+  const url        = proxy.buildUrl(API_URL_DIRECT);
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+  let resp;
+  try {
+    resp = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const raw    = await proxy.unwrap(resp);
+  const parsed = parseAPIResponse(raw);
+  if (parsed.length === 0) throw new Error('回傳空陣列');
+  return parsed;
+}
+
+/**
+ * fetchRainData()
+ * 主要入口：依序嘗試每個 proxy，全部失敗才 fallback demo。
+ */
 async function fetchRainData() {
-  isLoading = true;
-  apiError  = '';
+  isLoading     = true;
+  apiError      = '';
+  let usedProxy = '';
   setRefreshBtnState(true);
   showLoadingOverlay(true);
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+  let success = false;
 
-    const resp = await fetch(API_URL, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+  for (const proxy of PROXY_LIST) {
+    try {
+      console.info(`🔄 嘗試 proxy：${proxy.name}`);
+      showProxyStatus(`嘗試 ${proxy.name}…`);
 
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const parsed  = await fetchViaProxy(proxy);
+      stations      = parsed;
+      isLive        = true;
+      apiError      = '';
+      usedProxy     = proxy.name;
+      lastUpdateStr = formatNow();
+      console.info(`✅ [${proxy.name}] 成功載入 ${stations.length} 個雨量站`);
+      success = true;
+      break;  // 成功，停止輪詢
 
-    const raw    = await resp.json();
-    const parsed = parseAPIResponse(raw);
-
-    if (parsed.length === 0) throw new Error('API 回傳空陣列');
-
-    stations     = parsed;
-    isLive       = true;
-    apiError     = '';
-    lastUpdateStr = formatNow();
-    console.info(`✅ 成功載入 ${stations.length} 個雨量站`);
-
-  } catch (err) {
-    console.warn('⚠️ API 失敗:', err.message, '→ 使用示範資料');
-    stations     = parseAPIResponse(getDemoData());
-    isLive       = false;
-    apiError     = err.name === 'AbortError' ? '連線逾時（10s）' : err.message;
-    lastUpdateStr = formatNow() + ' (DEMO)';
-
-  } finally {
-    isLoading  = false;
-    countdown  = REFRESH_SEC;
-    initDisplayRain();
-    applyFilterSort();
-    computeStats();
-    updateDOMStats();
-    updateStatusBadge();
-    setRefreshBtnState(false);
-    showLoadingOverlay(false);
-    showErrorMsg(apiError);
-    document.getElementById('last-update').textContent = lastUpdateStr;
+    } catch (err) {
+      const reason = err.name === 'AbortError' ? '逾時' : err.message;
+      console.warn(`⚠️ [${proxy.name}] 失敗：${reason}`);
+      showProxyStatus(`${proxy.name} 失敗，換下一個…`);
+    }
   }
+
+  if (!success) {
+    // 全部 proxy 都失敗，使用示範資料
+    console.warn('⚠️ 所有 proxy 失敗 → 使用示範資料');
+    stations      = parseAPIResponse(getDemoData());
+    isLive        = false;
+    apiError      = '所有 proxy 不可用，顯示示範資料';
+    lastUpdateStr = formatNow() + ' (DEMO)';
+  }
+
+  // ── 無論成功失敗都執行 ──
+  isLoading = false;
+  countdown = REFRESH_SEC;
+  initDisplayRain();
+  applyFilterSort();
+  computeStats();
+  updateDOMStats();
+  updateStatusBadge(usedProxy);
+  setRefreshBtnState(false);
+  showLoadingOverlay(false);
+  showErrorMsg(isLive ? '' : apiError);
+  showProxyStatus('');
+  document.getElementById('last-update').textContent = lastUpdateStr;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -831,16 +897,35 @@ function updateCountdownDOM() {
   }
 }
 
-// Status badge
-function updateStatusBadge() {
+// Status badge — 成功時順帶顯示使用的 proxy 名稱
+function updateStatusBadge(usedProxy = '') {
   const badge = document.getElementById('status-badge');
   if (isLive) {
-    badge.textContent = '● LIVE';
+    badge.textContent = usedProxy ? `● LIVE (${usedProxy})` : '● LIVE';
     badge.className   = 'badge-live';
+    badge.title       = `資料來源：${usedProxy || '直連'}`;
   } else {
     badge.textContent = '● DEMO';
     badge.className   = 'badge-demo';
+    badge.title       = '所有 proxy 不可用，顯示示範資料';
   }
+}
+
+// 顯示目前正在嘗試哪個 proxy（顯示於 loading overlay 的副標題）
+function showProxyStatus(msg) {
+  const sub = document.querySelector('#loading-overlay .loader-sub');
+  if (sub) sub.textContent = msg || '臺北市水利處 API 連線中…';
+
+  // 同步更新 proxy 輪詢進度點陣
+  const prog = document.getElementById('proxy-progress');
+  if (!prog || !msg) return;
+  const dots = PROXY_LIST.map(px => {
+    const trying  = msg.includes(px.name) && msg.includes('嘗試');
+    const failed  = msg.includes(px.name) && msg.includes('失敗');
+    const cls     = trying ? 'px-dot trying' : failed ? 'px-dot failed' : 'px-dot';
+    return `<span class="${cls}" title="${px.name}"></span>`;
+  }).join('');
+  prog.innerHTML = dots;
 }
 
 // Refresh button state
@@ -864,7 +949,8 @@ function showLoadingOverlay(show) {
     el.innerHTML = `
       <div class="loader-ring"></div>
       <div class="loader-text">CONNECTING TO RAIN SENSOR NETWORK</div>
-      <div class="loader-sub">臺北市水利處 API 連線中…</div>
+      <div class="loader-sub">正在嘗試連線…</div>
+      <div class="loader-proxy-list" id="proxy-progress"></div>
     `;
     document.body.appendChild(el);
   }
