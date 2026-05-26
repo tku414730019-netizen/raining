@@ -38,8 +38,8 @@ const API_URL = 'https://square-surf-c3e1.tku414730019.workers.dev/';
 const REFRESH_SEC = 300;   // 自動更新間隔（秒）
 const API_TIMEOUT = 10000; // fetch 逾時保護（10 秒）
 const GAUGE_MAX_MM = 30;    // full-bar = 30 mm
-const CARD_MIN_W   = 192;
-const CARD_H       = 130;
+const CARD_MIN_W   = 210;
+const CARD_H       = 168;
 const CARD_PAD_X   = 16;
 const CARD_PAD_Y   = 14;
 const CARD_GAP     = 10;
@@ -81,6 +81,7 @@ let hoveredCard     = -1;
 let selectedCard    = -1;
 let isLoading       = true;
 let isLive          = false;
+let forceDemoMode   = false;   // 使用者手動強制展示示範資料
 let apiError        = '';
 let lastUpdateStr   = '—';
 let countdown       = REFRESH_SEC;
@@ -166,35 +167,36 @@ async function fetchRainData() {
   setRefreshBtnState(true);
   showLoadingOverlay(true);
 
+  // forceDemoMode：使用者手動切換為示範資料，跳過 API 呼叫
+  if (forceDemoMode) {
+    stations      = parseAPIResponse(getDemoData());
+    isLive        = false;
+    apiError      = '';
+    lastUpdateStr = formatNow() + ' (展示模式)';
+  } else {
   try {
-    // AbortController 提供逾時保護
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
-
     const resp = await fetch(API_URL, { signal: controller.signal });
     clearTimeout(timer);
-
     if (!resp.ok) throw new Error(`Worker 回傳 HTTP ${resp.status}`);
-
     const raw    = await resp.json();
     const parsed = parseAPIResponse(raw);
-
-    if (parsed.length === 0) throw new Error('回傳空陣列，可能 Worker 或 API 異常');
-
+    if (parsed.length === 0) throw new Error('回傳空陣列');
     stations      = parsed;
     isLive        = true;
     apiError      = '';
     lastUpdateStr = formatNow();
-    console.info(`✅ 成功載入 ${stations.length} 個雨量站（via Cloudflare Worker）`);
-
+    console.info(`✅ 成功載入 ${stations.length} 個雨量站`);
   } catch (err) {
     const reason = err.name === 'AbortError' ? '連線逾時（10s）' : err.message;
-    console.warn('⚠️ 資料擷取失敗：', reason, '→ 使用示範資料');
+    console.warn('⚠️ 資料擷取失敗：', reason);
     stations      = parseAPIResponse(getDemoData());
     isLive        = false;
     apiError      = reason;
     lastUpdateStr = formatNow() + ' (DEMO)';
   }
+  } // end forceDemoMode else
 
   // ── 無論成功失敗都執行 ──
   isLoading = false;
@@ -593,31 +595,31 @@ new p5(function(p) {
 
     // ── Station name ──
     p.textFont('Noto Sans TC, sans-serif');
-    p.textSize(14);
+    p.textSize(18);
     p.fill(...PAL.txt1);
     p.textAlign(p.LEFT, p.TOP);
-    p.text(s.stationName, x + 12, y + 12);
+    p.text(s.stationName, x + 14, y + 14);
 
     // ── Station code (hover/selected only) ──
     if (isHov || isSel) {
       p.textFont('Share Tech Mono, monospace');
-      p.textSize(9);
+      p.textSize(12);
       p.fill(...PAL.txt4);
-      p.text(s.stationNo, x + 12, y + 30);
+      p.text(s.stationNo, x + 14, y + 36);
     }
 
     // ── Level badge ──
-    const badgeW = 42;
-    const badgeH = 20;
+    const badgeW = 50;
+    const badgeH = 24;
     const bx     = x + cw - badgeW - 10;
-    const by     = y + 10;
+    const by     = y + 12;
     p.fill(...lc, 28);
     p.stroke(...lc, 120);
     p.strokeWeight(1);
     p.rect(bx, by, badgeW, badgeH, 4);
     p.noStroke();
     p.textFont('Noto Sans TC, sans-serif');
-    p.textSize(10);
+    p.textSize(13);
     p.fill(...lc);
     p.textAlign(p.CENTER, p.CENTER);
     p.text(level.label, bx + badgeW/2, by + badgeH/2);
@@ -626,19 +628,19 @@ new p5(function(p) {
     // ── Rain value ──
     p.textFont('Share Tech Mono, monospace');
     p.textAlign(p.RIGHT, p.BOTTOM);
-    p.textSize(24);
+    p.textSize(31);
     p.fill(...lc, 240);
-    p.text(actualRain.toFixed(1), x + cw - 10, y + ch - 22);
-    p.textSize(10);
+    p.text(actualRain.toFixed(1), x + cw - 10, y + ch - 28);
+    p.textSize(13);
     p.fill(...PAL.txt3);
-    p.text('mm', x + cw - 10, y + ch - 10);
+    p.text('mm', x + cw - 10, y + ch - 14);
     p.textAlign(p.LEFT);
 
     // ── Gauge bar ──
-    const gx     = x + 12;
-    const gy     = y + ch - 34;
-    const gw     = cw - 90;
-    const gh     = 8;
+    const gx     = x + 14;
+    const gy     = y + ch - 48;
+    const gw     = cw - 110;
+    const gh     = 10;
     const ratio  = Math.min(animRain / GAUGE_MAX_MM, 1.0);
 
     // track
@@ -672,38 +674,100 @@ new p5(function(p) {
     p.noStroke();
 
     // 具體時間（左側）
-    p.textSize(9);
+    p.textSize(12);
     p.fill(...(isStale ? [249, 115, 22] : PAL.txt4));
     p.textAlign(p.LEFT, p.BOTTOM);
-    p.text(timeStr, x + 12, y + ch - 8);
+    p.text(timeStr, x + 14, y + ch - 10);
 
     // 時間差（緊接在後，稍淡）
     const _tw = p.textWidth(timeStr);
     p.fill(...(isStale ? [249, 115, 22, 180] : PAL.txt4), isStale ? 180 : 140);
-    p.text(' · ' + agoText, x + 12 + _tw, y + ch - 8);
+    p.text(' · ' + agoText, x + 14 + _tw, y + ch - 10);
 
     // stale 驚嘆號圖示
     if (isStale) {
-      p.textSize(9);
+      p.textSize(12);
       p.fill(249, 115, 22, 200);
       p.textAlign(p.RIGHT, p.BOTTOM);
-      p.text('⚠', x + cw - 10, y + ch - 8);
+      p.text('⚠', x + cw - 10, y + ch - 10);
     }
     p.textAlign(p.LEFT);
 
-    // ── Animated rain streaks for high-rain cards (hover only) ──
-    if (actualRain >= 4 && isHov) {
-      for (let ri = 0; ri < 6; ri++) {
-        const phase = (pulseT * 2.5 + ri * 1.7) % 1;
-        const rx    = x + 18 + ri * ((cw - 36) / 5);
-        const ry    = y + 38 + phase * 30;
-        const alpha = 140 * (1 - phase);
-        p.stroke(...lc, alpha);
-        p.strokeWeight(1.2);
-        p.line(rx, ry, rx + 1, ry + 7);
+    // ── 雨滴特效：數量、速度、長度皆隨雨量動態變化 ──────────────
+    // 等級對應參數（依 getRainLevel 的 level 值）：
+    //  0:無雨   → 不顯示
+    //  1:微雨(0.01-1)  → 2滴，慢速，細短
+    //  2:小雨(1-4)     → 5滴，中速
+    //  3:中雨(4-10)    → 9滴，較快，稍粗
+    //  4:大雨(10-20)   → 15滴，快速，粗
+    //  5:豪雨(20+)     → 24滴，高速，密集粗長
+    if (actualRain > 0) {
+      const lv_rain = getRainLevel(actualRain);
+      const lvl     = lv_rain.level;
+
+      // 參數表：[ dropCount, speed, dropLen, strokeW, alphaMax ]
+      // 💡 建議：因為加入了景深(有些雨滴較細小)，可以微調增加一點 dropCount 讓畫面更飽滿
+      const RAIN_PARAMS = [
+        [0,  0,   0,  0,   0  ],  // 0: 無雨
+        [4,  1.2, 5,  0.8, 90 ],  // 1: 微雨
+        [10, 1.8, 7,  1.0, 110],  // 2: 小雨
+        [18, 2.5, 9,  1.2, 130],  // 3: 中雨
+        [30, 3.5, 12, 1.5, 155],  // 4: 大雨
+        [45, 5.0, 16, 2.0, 180],  // 5: 豪雨
+      ];
+  
+      const [dropCount, speed, dropLen, strokeW, alphaMax] = RAIN_PARAMS[lvl];
+
+      if (dropCount > 0) {
+        const areaLeft = x + 8;
+        const areaW    = cw - 16;
+        const areaTop  = y + 14;       // 站名下方開始
+        const areaH    = ch - 60;      // 留出 gauge/數字區域
+
+        for (let ri = 0; ri < dropCount; ri++) {
+          // 1. 景深因子 (0.6 ~ 1.0)：利用 ri 產生偽隨機數
+          // 模擬遠近感，較遠的雨滴較短、較細、落得較慢
+          const depth = 0.6 + ((ri * 7.51) % 1) * 0.4;
+      
+          const localSpeed = speed * depth;
+          const localLen   = dropLen * depth;
+          const localThick = strokeW * depth;
+
+          // 2. 計算總推進進度與掉落次數 (cycle)
+          const totalProgress = pulseT * localSpeed + ri * 0.6180339887;
+          const cycle = Math.floor(totalProgress); // 這滴雨已經掉落了幾次
+          const phase = totalProgress % 1;         // 0.0 ~ 1.0 目前的落下進度
+
+          // 3. 根據掉落次數 (cycle) 動態改變 X 座標
+          // 這樣每次從頭落下時，X 座標都會不一樣，徹底消除固定軌道感
+          const xHash = Math.abs(ri * 12.9898 + cycle * 78.233) % 1;
+          const rx    = areaLeft + xHash * areaW;
+          const ry    = areaTop + phase * areaH;
+
+          // 4. 平滑淡入淡出 (融入背景)
+          // 前 10% 淡入，後 20% 淡出
+          let alphaMult = 1.0;
+          if (phase < 0.1) {
+            alphaMult = phase / 0.1;
+          } else if (phase > 0.8) {
+            alphaMult = (1 - phase) / 0.2;
+          }
+
+          const alpha = alphaMax * depth * alphaMult;
+
+          // 5. 風切傾斜度：速度越快，傾斜角度越明顯
+          const tilt = 1.2 * localSpeed;
+
+          p.stroke(...lc, alpha);
+          p.strokeWeight(localThick);
+          p.line(rx, ry, rx + tilt, ry + localLen);
+        }
+    
+        // 將 noStroke 移出迴圈，減少 Canvas 狀態切換次數，提升效能
         p.noStroke();
       }
     }
+    
   }
 
   // ────────────────────────────────────────────────────────
@@ -741,10 +805,10 @@ new p5(function(p) {
   function drawEmptyState() {
     p.textAlign(p.CENTER, p.CENTER);
     p.textFont('Share Tech Mono, monospace');
-    p.textSize(14);
+    p.textSize(18);
     p.fill(...PAL.txt3);
     p.text('找不到符合條件的雨量站', CW/2, CH/2 - 14);
-    p.textSize(11);
+    p.textSize(14);
     p.fill(...PAL.txt4);
     p.text('請調整搜尋或篩選條件', CW/2, CH/2 + 12);
     p.textAlign(p.LEFT);
@@ -900,15 +964,26 @@ function updateCountdownDOM() {
 // Status badge
 function updateStatusBadge() {
   const badge = document.getElementById('status-badge');
-  if (isLive) {
+  if (forceDemoMode) {
+    badge.textContent = '🧪 展示模式';
+    badge.className   = 'badge-force-demo';
+    badge.title       = '點擊切換回即時資料（展示模式中）';
+  } else if (isLive) {
     badge.textContent = '● LIVE';
     badge.className   = 'badge-live';
-    badge.title       = '資料來源：Cloudflare Worker → wic.gov.taipei';
+    badge.title       = '點擊切換展示資料（目前為即時 API）';
   } else {
     badge.textContent = '● DEMO';
     badge.className   = 'badge-demo';
-    badge.title       = 'Worker 不可用，目前顯示示範資料';
+    badge.title       = '點擊切換展示資料（API 失敗）';
   }
+}
+
+// 切換 forceDemoMode（LIVE 徽章點擊觸發）
+function toggleDemoMode() {
+  forceDemoMode = !forceDemoMode;
+  console.info(`🧪 展示模式：${forceDemoMode ? '開啟' : '關閉'}`);
+  fetchRainData();
 }
 
 // Refresh button state
@@ -984,6 +1059,14 @@ function updateDataTimeDOM() {
 // ─────────────────────────────────────────────────────────────
 
 // 備用座標（CWA API 對不到名稱時使用）
+// ── 手動覆蓋座標（最高優先，永遠蓋掉 CWA API 資料）────────────────
+// CWA API 含全台灣站台；「太平」在台中有同名站，部分比對會誤配。
+// 這裡列出確定正確的座標，fetchCWACoords 最後會強制寫入。
+const COORDS_OVERRIDE = {
+  '太平國小': { lat: 25.061383, lng: 121.511449 },  // 台北大同區太原路173號
+  '仁愛國小': { lat: 25.0324,   lng: 121.5225   },  // 台北中正區仁愛路二段35號
+};
+
 const COORDS_FALLBACK = {
   '貴子坑':  { lat:25.130, lng:121.472 }, '百拉卡':  { lat:25.176, lng:121.536 },
   '貓空':    { lat:24.975, lng:121.582 }, '大安':    { lat:25.026, lng:121.543 },
@@ -1001,7 +1084,7 @@ const COORDS_FALLBACK = {
   '關渡':    { lat:25.123, lng:121.469 },
   // 學校站台（仁愛路二段35號 / 太原路173號 — 正確座標）
   '仁愛國小':{ lat:25.0324, lng:121.5225 },  // 中正區仁愛路二段35號
-  '太平國小':{ lat:25.0594, lng:121.5092 },  // 大同區太原路173號
+  '太平國小':{ lat:25.061383, lng:121.511449 },  // 大同區太原路173號（校正）
 };
 
 /**
@@ -1038,6 +1121,10 @@ async function fetchCWACoords() {
   Object.entries(COORDS_FALLBACK).forEach(([name, coords]) => {
     if (!stationCoords[name]) stationCoords[name] = coords;
   });
+  // 強制套用手動覆蓋座標（最高優先，永遠蓋掉 CWA 同名或誤配站台）
+  Object.entries(COORDS_OVERRIDE).forEach(([name, coords]) => {
+    stationCoords[name] = coords;
+  });
 }
 
 /**
@@ -1045,9 +1132,20 @@ async function fetchCWACoords() {
  * 取得站台的 {lat,lng}。先精確比對，再部分比對。
  */
 function getLatLng(s) {
+  // 1. 手動覆蓋座標（最高優先）
+  if (COORDS_OVERRIDE[s.stationName]) return COORDS_OVERRIDE[s.stationName];
+  // 2. 精確比對
   if (stationCoords[s.stationName]) return stationCoords[s.stationName];
+  // 3. 嚴格部分比對：
+  //    只允許「CWA 站名 包含 雨量站名（至少3字）」，且名稱長度差 ≤ 2。
+  //    禁止反向（如 CWA「太平」⊂ 雨量站「太平國小」），防止跨縣市誤配。
+  const rn = s.stationName;
   for (const [name, coords] of Object.entries(stationCoords)) {
-    if (name.includes(s.stationName) || s.stationName.includes(name)) return coords;
+    if (
+      rn.length >= 3 &&
+      name.includes(rn) &&
+      Math.abs(name.length - rn.length) <= 2
+    ) return coords;
   }
   return null;
 }
@@ -1131,23 +1229,24 @@ function updateMapMarkers() {
     marker.bindTooltip(
       `<div style="font-family:'Share Tech Mono',monospace;font-size:11px;line-height:1.8;color:#1e3a3a">` +
       `<div style="font-family:'Noto Sans TC',sans-serif;font-size:13px;font-weight:700;margin-bottom:3px">${s.stationName}</div>` +
-      `<div style="color:#ef4444;font-weight:700;font-size:15px">${s.rain.toFixed(1)} mm</div>` +
+      `<div style="color:${lvColor};font-weight:700;font-size:15px">${s.rain.toFixed(1)} mm</div>` +
       `<div style="color:#7aabab">${lv.emoji} ${lv.label}</div>` +
       `<div style="color:${isStale ? '#f97316' : '#7aabab'};font-size:10px">${formatRecTime(s.recTime)}（${ago}）</div>` +
       `</div>`,
       { sticky: false, opacity: 0.97, className: 'rain-tooltip' }
     );
 
-    // Click popup
+    // Click popup（右上角顯示天氣 emoji）
     marker.bindPopup(
-      `<div class="rain-popup-inner">` +
+      `<div class="rain-popup-inner" style="position:relative;padding-right:38px">` +
+      `<div class="rain-popup-icon" style="position:absolute;top:-2px;right:0;font-size:26px;line-height:1" title="${lv.label}">${lv.emoji}</div>` +
       `<div class="rain-popup-name">${s.stationName}</div>` +
       `<hr class="rain-popup-divider">` +
       `<div>站碼：${s.stationNo}</div>` +
-      `<div class="rain-popup-level" style="color:${lvColor}">${lv.emoji} ${lv.label}　${s.rain.toFixed(1)} mm</div>` +
+      `<div class="rain-popup-level" style="color:${lvColor}">${lv.label}　${s.rain.toFixed(1)} mm</div>` +
       `<div style="color:${isStale ? '#f97316' : '#7aabab'};font-size:10px">${formatRecTime(s.recTime)}（${ago}）</div>` +
       `</div>`,
-      { className: 'rain-popup', maxWidth: 200 }
+      { className: 'rain-popup', maxWidth: 210 }
     );
 
     marker.addTo(leafletMap);
@@ -1230,3 +1329,6 @@ document.querySelectorAll('.chip').forEach(btn => {
 // View toggle buttons
 document.getElementById('btn-cards')?.addEventListener('click', () => switchViewMode('cards'));
 document.getElementById('btn-map')?.addEventListener('click',   () => switchViewMode('map'));
+
+// LIVE 徽章點擊 → 切換展示模式
+document.getElementById('status-badge')?.addEventListener('click', toggleDemoMode);
