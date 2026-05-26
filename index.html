@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>臺北市水利處｜雨量站即時監測</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Nunito:wght@300;400;600;700&family=Noto+Sans+TC:wght@300;400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- p5.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Toolbar (DOM layer, above canvas) ── -->
+  <div id="toolbar">
+    <div id="toolbar-left">
+      <div id="logo-mark">
+        <span class="bar b1"></span>
+        <span class="bar b2"></span>
+        <span class="bar b3"></span>
+        <span class="bar b4"></span>
+        <span class="bar b5"></span>
+      </div>
+      <div id="title-block">
+        <h1>臺北市雨量站即時監測</h1>
+        <p>Taipei City Rain Station Dashboard</p>
+      </div>
+    </div>
+    <div id="toolbar-right">
+      <input id="search-input" type="text" placeholder="搜尋站名…" autocomplete="off" />
+      <select id="sort-select">
+        <option value="default">預設排序</option>
+        <option value="rain-desc">雨量 ↓</option>
+        <option value="rain-asc">雨量 ↑</option>
+        <option value="name">站名 A→Z</option>
+      </select>
+      <button id="refresh-btn">↺ 更新</button>
+      <div id="status-badge" class="badge-demo">● DEMO</div>
+    </div>
+  </div>
+
+  <!-- ── Stat bar ── -->
+  <div id="stat-bar">
+    <div class="stat-item" id="stat-total">
+      <div class="stat-val">—</div>
+      <div class="stat-lbl">監測站總數</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item" id="stat-raining">
+      <div class="stat-val">—</div>
+      <div class="stat-lbl">有雨站數</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item" id="stat-alert">
+      <div class="stat-val">—</div>
+      <div class="stat-lbl">警戒站數</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item" id="stat-avg">
+      <div class="stat-val">—</div>
+      <div class="stat-lbl">全市平均 mm</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item" id="stat-max">
+      <div class="stat-val">—</div>
+      <div class="stat-lbl">最高雨量</div>
+      <div class="stat-sub" id="stat-max-name">—</div>
+    </div>
+    <div id="countdown-wrap">
+      <div id="countdown-label">下次更新</div>
+      <div id="countdown-val">300s</div>
+      <div id="countdown-bar-track">
+        <div id="countdown-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Filter chips ── -->
+  <div id="filter-bar">
+    <span class="filter-label">等級篩選：</span>
+    <button class="chip chip-all active" data-level="-1">全部</button>
+    <button class="chip" data-level="0" style="--chip-color:#90b8c8">☁ 無雨</button>
+    <button class="chip" data-level="1" style="--chip-color:#38bdf8">🌦 微雨</button>
+    <button class="chip" data-level="2" style="--chip-color:#2dd4bf">🌧 小雨</button>
+    <button class="chip" data-level="3" style="--chip-color:#facc15">⛈ 中雨</button>
+    <button class="chip" data-level="4" style="--chip-color:#f97316">🌊 大雨</button>
+    <button class="chip" data-level="5" style="--chip-color:#ef4444">🚨 豪雨</button>
+    <div id="error-msg" class="hidden"></div>
+  </div>
+
+  <!-- ── Canvas container (p5.js mounts here) ── -->
+  <div id="canvas-wrap"></div>
+
+  <!-- ── Tooltip ── -->
+  <div id="tooltip" class="hidden">
+    <div id="tt-name"></div>
+    <div class="tt-divider"></div>
+    <div id="tt-no"></div>
+    <div id="tt-rain"></div>
+    <div id="tt-level"></div>
+    <div id="tt-time"></div>
+  </div>
+
+  <!-- ── Footer ── -->
+  <footer id="app-footer">
+    資料來源：臺北市政府水利處 wic.gov.taipei｜授權：政府資料開放授權條款（OGDL）｜
+    更新時間：<span id="last-update">—</span>
+  </footer>
+
+  <!-- Sketch -->
+  <script src="sketch.js"></script>
+</body>
+</html>
