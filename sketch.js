@@ -26,37 +26,17 @@
 // ─────────────────────────────────────────────────────────────
 //  CONSTANTS
 // ─────────────────────────────────────────────────────────────
-// 原始 API（wic.gov.taipei 沒有 CORS header，瀏覽器直接呼叫必然失敗）
-const API_URL_DIRECT =
-  'https://wic.gov.taipei/OpenData/API/Rain/Get' +
-  '?stationNo=&loginId=open_rain&dataKey=85452C1D';
+// ── API 端點 ─────────────────────────────────────────────────
+// 透過自建 Cloudflare Worker 代理，解決 wic.gov.taipei 的 CORS 限制。
+// Worker 原始碼：替換 target URL，加上 Access-Control-Allow-Origin: * 即可。
+//
+// 架構：GitHub Pages → Cloudflare Worker → wic.gov.taipei OpenData
+//
+// 若要換成自己的 Worker，只需修改這一行：
+const API_URL = 'https://square-surf-c3e1.tku414730019.workers.dev/';
 
-// ── CORS Proxy 清單（依序嘗試，任一成功即停止）──────────────────
-// 每個 proxy 的包裝方式不同，故各自有 buildUrl + unwrap 函式
-const PROXY_LIST = [
-  {
-    name: 'corsproxy.io',
-    buildUrl: (target) => 'https://corsproxy.io/?' + encodeURIComponent(target),
-    unwrap:   async (resp) => resp.json(),  // 直接回傳原始 JSON
-  },
-  {
-    name: 'allorigins.win',
-    buildUrl: (target) => 'https://api.allorigins.win/get?url=' + encodeURIComponent(target),
-    // allorigins 把原始 body 包在 { contents: "..." } 裡
-    unwrap: async (resp) => {
-      const wrapper = await resp.json();
-      return JSON.parse(wrapper.contents);
-    },
-  },
-  {
-    name: 'htmldriven cors-proxy',
-    buildUrl: (target) => 'https://cors-proxy.htmldriven.com/?url=' + encodeURIComponent(target),
-    unwrap:   async (resp) => resp.json(),
-  },
-];
-
-const REFRESH_SEC  = 300;   // auto-refresh every 5 minutes
-const API_TIMEOUT  = 9000;  // 每個 proxy 最多等 9 秒
+const REFRESH_SEC = 300;   // 自動更新間隔（秒）
+const API_TIMEOUT = 10000; // fetch 逾時保護（10 秒）
 const GAUGE_MAX_MM = 30;    // full-bar = 30 mm
 const CARD_MIN_W   = 192;
 const CARD_H       = 130;
@@ -116,6 +96,13 @@ let pulseT          = 0;    // global animation time
 let rainDrops = [];
 let bubbles   = [];
 
+// ── View mode ────────────────────────────────────
+let viewMode      = 'cards';  // 'cards' | 'map'
+let leafletMap    = null;     // Leaflet L.map instance
+let mapMarkers    = [];       // L.circleMarker 陣列
+let stationCoords = {};       // { stationName: { lat, lng } }
+let mapReady      = false;    // 地圖是否已初始化
+
 // ─────────────────────────────────────────────────────────────
 //  DEMO DATA  (used when API fails / CORS blocked)
 // ─────────────────────────────────────────────────────────────
@@ -153,90 +140,59 @@ function getDemoData() {
 }
 
 function currentTimeStr() {
-  const n = new Date();
-  const p = x => String(x).padStart(2,'0');
-  return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())} ` +
-         `${p(n.getHours())}:${p(Math.floor(n.getMinutes()/10)*10)}:00`;
+  // 產生與真實 API 相同的緊湊格式 YYYYMMDDHHmm（12碼）
+  const n  = new Date();
+  const p  = x => String(x).padStart(2,'0');
+  const mm = Math.floor(n.getMinutes() / 10) * 10;
+  return `${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}${p(n.getHours())}${p(mm)}`;
 }
 
 // ─────────────────────────────────────────────────────────────
 //  DATA FETCH
 //
-//  策略：串接 CORS Proxy 清單，依序嘗試直到成功。
-//  流程：
-//    1. 逐一試 PROXY_LIST 中的 proxy
-//       ├─ 成功 → 解析資料，isLive = true，停止輪詢
-//       └─ 失敗（逾時 / CORS / HTTP 錯誤）→ 繼續試下一個
-//    2. 全部失敗 → fallback 示範資料，isLive = false
+//  架構：GitHub Pages → Cloudflare Worker（API_URL）→ wic.gov.taipei
+//  Worker 已處理 CORS，前端直接 fetch 即可。
+//  若 Worker 失敗 → 自動 fallback 示範資料，確保頁面不空白。
 // ─────────────────────────────────────────────────────────────
 
 /**
- * fetchViaProxy(proxy)
- * 透過單一 proxy 取得資料，逾時或錯誤時拋例外。
- * @param  {Object} proxy  PROXY_LIST 中的一項
- * @returns {Array}        正規化後的 station 陣列
- */
-async function fetchViaProxy(proxy) {
-  const url        = proxy.buildUrl(API_URL_DIRECT);
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), API_TIMEOUT);
-
-  let resp;
-  try {
-    resp = await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-  const raw    = await proxy.unwrap(resp);
-  const parsed = parseAPIResponse(raw);
-  if (parsed.length === 0) throw new Error('回傳空陣列');
-  return parsed;
-}
-
-/**
  * fetchRainData()
- * 主要入口：依序嘗試每個 proxy，全部失敗才 fallback demo。
+ * 向 Cloudflare Worker 取得雨量資料。
+ * 失敗時自動 fallback 到 demo data。
  */
 async function fetchRainData() {
-  isLoading     = true;
-  apiError      = '';
-  let usedProxy = '';
+  isLoading = true;
+  apiError  = '';
   setRefreshBtnState(true);
   showLoadingOverlay(true);
 
-  let success = false;
+  try {
+    // AbortController 提供逾時保護
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
 
-  for (const proxy of PROXY_LIST) {
-    try {
-      console.info(`🔄 嘗試 proxy：${proxy.name}`);
-      showProxyStatus(`嘗試 ${proxy.name}…`);
+    const resp = await fetch(API_URL, { signal: controller.signal });
+    clearTimeout(timer);
 
-      const parsed  = await fetchViaProxy(proxy);
-      stations      = parsed;
-      isLive        = true;
-      apiError      = '';
-      usedProxy     = proxy.name;
-      lastUpdateStr = formatNow();
-      console.info(`✅ [${proxy.name}] 成功載入 ${stations.length} 個雨量站`);
-      success = true;
-      break;  // 成功，停止輪詢
+    if (!resp.ok) throw new Error(`Worker 回傳 HTTP ${resp.status}`);
 
-    } catch (err) {
-      const reason = err.name === 'AbortError' ? '逾時' : err.message;
-      console.warn(`⚠️ [${proxy.name}] 失敗：${reason}`);
-      showProxyStatus(`${proxy.name} 失敗，換下一個…`);
-    }
-  }
+    const raw    = await resp.json();
+    const parsed = parseAPIResponse(raw);
 
-  if (!success) {
-    // 全部 proxy 都失敗，使用示範資料
-    console.warn('⚠️ 所有 proxy 失敗 → 使用示範資料');
+    if (parsed.length === 0) throw new Error('回傳空陣列，可能 Worker 或 API 異常');
+
+    stations      = parsed;
+    isLive        = true;
+    apiError      = '';
+    lastUpdateStr = formatNow();
+    console.info(`✅ 成功載入 ${stations.length} 個雨量站（via Cloudflare Worker）`);
+
+  } catch (err) {
+    const reason = err.name === 'AbortError' ? '連線逾時（10s）' : err.message;
+    console.warn('⚠️ 資料擷取失敗：', reason, '→ 使用示範資料');
     stations      = parseAPIResponse(getDemoData());
     isLive        = false;
-    apiError      = '所有 proxy 不可用，顯示示範資料';
+    apiError      = reason;
     lastUpdateStr = formatNow() + ' (DEMO)';
   }
 
@@ -247,11 +203,12 @@ async function fetchRainData() {
   applyFilterSort();
   computeStats();
   updateDOMStats();
-  updateStatusBadge(usedProxy);
+  updateStatusBadge();
   setRefreshBtnState(false);
   showLoadingOverlay(false);
   showErrorMsg(isLive ? '' : apiError);
-  showProxyStatus('');
+  updateDataTimeDOM();
+  if (viewMode === 'map' && mapReady) updateMapMarkers();
   document.getElementById('last-update').textContent = lastUpdateStr;
 }
 
@@ -259,20 +216,33 @@ async function fetchRainData() {
 //  PARSE & NORMALIZE
 // ─────────────────────────────────────────────────────────────
 function parseAPIResponse(raw) {
-  if (!Array.isArray(raw)) return [];
 
-  return raw
+  // 支援兩種格式：
+  // 1. 原始 API：直接 array
+  // 2. Cloudflare Worker：{ data:[...] }
+
+  const source = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw.data)
+      ? raw.data
+      : [];
+
+  return source
     .map(item => {
-      const safeStr = v => (v != null) ? String(v).trim() : '';
+
+      const safeStr = v =>
+        (v != null) ? String(v).trim() : '';
+
       const safeNum = v => {
         const n = parseFloat(v);
         return (isNaN(n) || n < 0) ? 0 : n;
       };
+
       return {
         stationNo:   safeStr(item.stationNo),
         stationName: safeStr(item.stationName) || '未知站',
         recTime:     safeStr(item.recTime),
-        rain:        Math.min(safeNum(item.rain), 500), // >500 = anomaly
+        rain:        Math.min(safeNum(item.rain), 500),
         count:       parseInt(item.count) || 0,
       };
     })
@@ -351,10 +321,28 @@ function formatNow() {
   return `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
 }
 
+/**
+ * normalizeRecTime(rt)
+ * 統一轉換各種 API 時間格式為 "YYYY-MM-DD HH:mm"
+ * 支援：
+ *   "202605261020"        ← 實際 API（YYYYMMDDHHmm 12碼）
+ *   "20260526102000"      ← 含秒 14碼
+ *   "2026-05-26 10:20"    ← 帶分隔符
+ *   "2026-05-26 10:20:00" ← 帶分隔符含秒
+ */
+function normalizeRecTime(rt) {
+  if (!rt) return null;
+  const s = String(rt).trim();
+  if (/^\d{12,14}$/.test(s)) {
+    // 緊湊格式：直接切位
+    return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8)+' '+s.slice(8,10)+':'+s.slice(10,12);
+  }
+  const m = s.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+
 function formatRecTime(rt) {
-  if (!rt) return '—';
-  const m = rt.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
-  return m ? `${m[1]} ${m[2]}` : rt;
+  return normalizeRecTime(rt) ?? '—';
 }
 
 /**
@@ -364,9 +352,9 @@ function formatRecTime(rt) {
  * 加上 +08:00 後綴讓 Date.parse 正確解讀時區，避免被當 UTC 差 8 小時。
  */
 function parseRecTime(rt) {
-  if (!rt) return null;
-  // 把空格換成 T，補上時區，讓 ISO 8601 解析正確
-  const iso = rt.trim().replace(' ', 'T') + '+08:00';
+  const normalized = normalizeRecTime(rt);
+  if (!normalized) return null;
+  const iso = normalized.replace(' ', 'T') + ':00+08:00';
   const d   = new Date(iso);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -477,6 +465,13 @@ new p5(function(p) {
   // ── draw ────────────────────────────────────────────────
   p.draw = function () {
     pulseT += 0.018;
+
+    if (viewMode === 'map') {
+      // 地圖模式：canvas 透明，Leaflet 地圖從底層透出
+      // p5 不繪製任何內容，全部由 Leaflet CircleMarker 負責
+      p.clear();
+      return;
+    }
 
     p.background(...PAL.bg);
     drawBubbles();
@@ -793,8 +788,7 @@ new p5(function(p) {
   //  EVENTS
   // ────────────────────────────────────────────────────────
   p.mousePressed = function () {
-    // card hit-test (adjust for canvas position + scroll)
-    const canvasTop = document.getElementById('canvas-wrap').getBoundingClientRect().top;
+    if (viewMode !== 'cards') return;  // 地圖模式下不觸發卡片互動
     const mx = p.mouseX;
     const my = p.mouseY + scrollY;
 
@@ -814,6 +808,12 @@ new p5(function(p) {
   };
 
   p.mouseMoved = function () {
+    if (viewMode !== 'cards') {
+      // 地圖模式：重置所有卡片狀態，避免殘留 hover
+      hoveredCard = -1;
+      p.cursor(p.ARROW);
+      return;
+    }
     const my = p.mouseY + scrollY;
     hoveredCard = -1;
     cardBounds.forEach((b, i) => {
@@ -897,35 +897,18 @@ function updateCountdownDOM() {
   }
 }
 
-// Status badge — 成功時順帶顯示使用的 proxy 名稱
-function updateStatusBadge(usedProxy = '') {
+// Status badge
+function updateStatusBadge() {
   const badge = document.getElementById('status-badge');
   if (isLive) {
-    badge.textContent = usedProxy ? `● LIVE (${usedProxy})` : '● LIVE';
+    badge.textContent = '● LIVE';
     badge.className   = 'badge-live';
-    badge.title       = `資料來源：${usedProxy || '直連'}`;
+    badge.title       = '資料來源：Cloudflare Worker → wic.gov.taipei';
   } else {
     badge.textContent = '● DEMO';
     badge.className   = 'badge-demo';
-    badge.title       = '所有 proxy 不可用，顯示示範資料';
+    badge.title       = 'Worker 不可用，目前顯示示範資料';
   }
-}
-
-// 顯示目前正在嘗試哪個 proxy（顯示於 loading overlay 的副標題）
-function showProxyStatus(msg) {
-  const sub = document.querySelector('#loading-overlay .loader-sub');
-  if (sub) sub.textContent = msg || '臺北市水利處 API 連線中…';
-
-  // 同步更新 proxy 輪詢進度點陣
-  const prog = document.getElementById('proxy-progress');
-  if (!prog || !msg) return;
-  const dots = PROXY_LIST.map(px => {
-    const trying  = msg.includes(px.name) && msg.includes('嘗試');
-    const failed  = msg.includes(px.name) && msg.includes('失敗');
-    const cls     = trying ? 'px-dot trying' : failed ? 'px-dot failed' : 'px-dot';
-    return `<span class="${cls}" title="${px.name}"></span>`;
-  }).join('');
-  prog.innerHTML = dots;
 }
 
 // Refresh button state
@@ -949,8 +932,7 @@ function showLoadingOverlay(show) {
     el.innerHTML = `
       <div class="loader-ring"></div>
       <div class="loader-text">CONNECTING TO RAIN SENSOR NETWORK</div>
-      <div class="loader-sub">正在嘗試連線…</div>
-      <div class="loader-proxy-list" id="proxy-progress"></div>
+      <div class="loader-sub">透過 Cloudflare Worker 連線中…</div>
     `;
     document.body.appendChild(el);
   }
@@ -962,10 +944,254 @@ function showErrorMsg(msg) {
   const el = document.getElementById('error-msg');
   if (!el) return;
   if (msg) {
-    el.textContent = '⚠ API: ' + msg.substring(0, 40);
+    el.textContent = '⚠ ' + msg.substring(0, 50);
     el.classList.remove('hidden');
   } else {
     el.classList.add('hidden');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  DATA TIME DOM（顯示在 filter-bar 右側）
+// ─────────────────────────────────────────────────────────────
+function updateDataTimeDOM() {
+  let el = document.getElementById('data-time');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'data-time';
+    const bar = document.getElementById('filter-bar');
+    if (bar) bar.appendChild(el);
+  }
+  if (!stations.length) { el.textContent = ''; return; }
+
+  const rt              = stations[0].recTime;
+  const formatted       = formatRecTime(rt);
+  const { text, isStale } = timeAgo(rt);
+
+  el.className = isStale ? 'data-time-stale' : 'data-time-ok';
+  // dt-sep 分隔符 + 全程 Share Tech Mono 繼承，避免字型混用
+  el.innerHTML =
+    `<span class="dt-icon">${isStale ? '⚠' : '🕐'}</span>` +
+    `<span class="dt-label">資料時間</span>` +
+    `<span class="dt-sep">|</span>` +
+    `<span class="dt-time">${formatted}</span>` +
+    `<span class="dt-sep">·</span>` +
+    `<span class="dt-ago">${text}</span>`;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  MAP MODE — 座標資料 + Leaflet 地圖
+// ─────────────────────────────────────────────────────────────
+
+// 備用座標（CWA API 對不到名稱時使用）
+const COORDS_FALLBACK = {
+  '貴子坑':  { lat:25.130, lng:121.472 }, '百拉卡':  { lat:25.176, lng:121.536 },
+  '貓空':    { lat:24.975, lng:121.582 }, '大安':    { lat:25.026, lng:121.543 },
+  '新生':    { lat:25.043, lng:121.530 }, '木柵':    { lat:24.998, lng:121.570 },
+  '景美':    { lat:24.998, lng:121.541 }, '北投':    { lat:25.131, lng:121.499 },
+  '士林':    { lat:25.087, lng:121.524 }, '天母':    { lat:25.109, lng:121.532 },
+  '內湖':    { lat:25.072, lng:121.587 }, '南港':    { lat:25.055, lng:121.607 },
+  '信義':    { lat:25.033, lng:121.567 }, '松山':    { lat:25.050, lng:121.558 },
+  '中山':    { lat:25.063, lng:121.531 }, '中正':    { lat:25.043, lng:121.510 },
+  '萬華':    { lat:25.038, lng:121.499 }, '大同':    { lat:25.064, lng:121.510 },
+  '文山':    { lat:24.990, lng:121.566 }, '指南宮':  { lat:24.980, lng:121.587 },
+  '陽明山':  { lat:25.156, lng:121.546 }, '竹子湖':  { lat:25.163, lng:121.545 },
+  '石碇':    { lat:24.987, lng:121.658 }, '烏來':    { lat:24.863, lng:121.551 },
+  '汐止':    { lat:25.065, lng:121.656 }, '社子':    { lat:25.080, lng:121.504 },
+  '關渡':    { lat:25.123, lng:121.469 },
+  // 學校站台（仁愛路二段35號 / 太原路173號 — 正確座標）
+  '仁愛國小':{ lat:25.0324, lng:121.5225 },  // 中正區仁愛路二段35號
+  '太平國小':{ lat:25.0594, lng:121.5092 },  // 大同區太原路173號
+};
+
+/**
+ * fetchCWACoords()
+ * 從中央氣象署 OpenData 取得自動氣象站座標。
+ * 以站名模糊比對雨量站，填入 stationCoords。
+ * 失敗時靜默降級到 COORDS_FALLBACK。
+ */
+async function fetchCWACoords() {
+  const CWA_URL = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0002-001' +
+    '?Authorization=rdec-key-123-45678-011121314';
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(CWA_URL, { signal: controller.signal });
+    if (!resp.ok) throw new Error(`CWA HTTP ${resp.status}`);
+    const json = await resp.json();
+    const list = json?.records?.Station ?? [];
+    list.forEach(st => {
+      const name   = st.StationName;
+      const coords = (st.GeoInfo?.Coordinates ?? []).find(c => c.CoordinateName === 'WGS84');
+      if (coords) {
+        stationCoords[name] = {
+          lat: parseFloat(coords.StationLatitude),
+          lng: parseFloat(coords.StationLongitude),
+        };
+      }
+    });
+    console.info(`📍 CWA 座標：${Object.keys(stationCoords).length} 站`);
+  } catch (err) {
+    console.warn('⚠️ CWA 座標失敗，使用備用座標:', err.message);
+  }
+  // 合併備用座標（CWA 已有的不覆蓋）
+  Object.entries(COORDS_FALLBACK).forEach(([name, coords]) => {
+    if (!stationCoords[name]) stationCoords[name] = coords;
+  });
+}
+
+/**
+ * getLatLng(s)
+ * 取得站台的 {lat,lng}。先精確比對，再部分比對。
+ */
+function getLatLng(s) {
+  if (stationCoords[s.stationName]) return stationCoords[s.stationName];
+  for (const [name, coords] of Object.entries(stationCoords)) {
+    if (name.includes(s.stationName) || s.stationName.includes(name)) return coords;
+  }
+  return null;
+}
+
+/**
+ * initMap()
+ * 初始化 Leaflet 地圖（使用 Mappa-mundi 啟動 Leaflet 底圖）。
+ * 只執行一次；切換 view mode 後重複呼叫是安全的。
+ */
+function initMap() {
+  if (mapReady) { leafletMap.invalidateSize(); return; }
+
+  const mapEl = document.getElementById('map-wrap');
+  if (!mapEl) return;
+
+  // 使用 Mappa-mundi 初始化 Leaflet（若 Mappa 可用）
+  // 否則直接 fallback 到純 Leaflet
+  try {
+    const mappa = new Mappa('Leaflet');
+    const tileMap = mappa.tileMap({
+      lat: 25.05, lng: 121.55, zoom: 11,
+      style: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    });
+    // Mappa 需要 canvas element 才能 overlay；
+    // 這裡我們取 p5 canvas 但不繪製在上面，只是讓 Mappa 完成初始化
+    const cnv = document.querySelector('#canvas-wrap canvas');
+    if (cnv) tileMap.overlay(cnv);
+    leafletMap = tileMap.map;
+    // 把地圖移到正確的 div
+    leafletMap.getContainer().style.display = 'none';
+    throw new Error('use direct Leaflet in map-wrap instead');
+  } catch (_) {
+    // Mappa overlay 不符合我們的分離式架構，改用純 Leaflet
+  }
+
+  leafletMap = L.map('map-wrap', { zoomControl: true, attributionControl: true })
+    .setView([25.05, 121.55], 11);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(leafletMap);
+
+  mapReady = true;
+  console.info('🗺 地圖初始化完成（Leaflet / OSM）');
+  updateMapMarkers();
+}
+
+/**
+ * updateMapMarkers()
+ * 清除舊 CircleMarker，依最新 stations 陣列重建。
+ * 顏色對應雨量等級；hover 顯示 tooltip；click 顯示 popup。
+ */
+function updateMapMarkers() {
+  if (!mapReady || !leafletMap) return;
+
+  // 清除舊 markers
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
+
+  stations.forEach(s => {
+    const pos = getLatLng(s);
+    if (!pos) return;
+
+    const lv     = getRainLevel(s.rain);
+    const lvColor = `rgb(${lv.color.join(',')})`;  // 等級色（只用於 popup 文字）
+    const radius  = s.rain <= 0 ? 7 : 7 + Math.min(s.rain / 2, 12);
+
+    // 圓圈固定紅色，大小仍隨雨量變化
+    const marker = L.circleMarker([pos.lat, pos.lng], {
+      radius,
+      fillColor:   '#ef4444',   // 紅色填充
+      fillOpacity: s.rain <= 0 ? 0.40 : 0.72,
+      color:       '#991b1b',   // 深紅色邊框
+      weight:      1.5,
+      opacity:     0.95,
+    });
+
+    // Hover tooltip
+    const { text: ago, isStale } = timeAgo(s.recTime);
+    marker.bindTooltip(
+      `<div style="font-family:'Share Tech Mono',monospace;font-size:11px;line-height:1.8;color:#1e3a3a">` +
+      `<div style="font-family:'Noto Sans TC',sans-serif;font-size:13px;font-weight:700;margin-bottom:3px">${s.stationName}</div>` +
+      `<div style="color:#ef4444;font-weight:700;font-size:15px">${s.rain.toFixed(1)} mm</div>` +
+      `<div style="color:#7aabab">${lv.emoji} ${lv.label}</div>` +
+      `<div style="color:${isStale ? '#f97316' : '#7aabab'};font-size:10px">${formatRecTime(s.recTime)}（${ago}）</div>` +
+      `</div>`,
+      { sticky: false, opacity: 0.97, className: 'rain-tooltip' }
+    );
+
+    // Click popup
+    marker.bindPopup(
+      `<div class="rain-popup-inner">` +
+      `<div class="rain-popup-name">${s.stationName}</div>` +
+      `<hr class="rain-popup-divider">` +
+      `<div>站碼：${s.stationNo}</div>` +
+      `<div class="rain-popup-level" style="color:${lvColor}">${lv.emoji} ${lv.label}　${s.rain.toFixed(1)} mm</div>` +
+      `<div style="color:${isStale ? '#f97316' : '#7aabab'};font-size:10px">${formatRecTime(s.recTime)}（${ago}）</div>` +
+      `</div>`,
+      { className: 'rain-popup', maxWidth: 200 }
+    );
+
+    marker.addTo(leafletMap);
+    mapMarkers.push(marker);
+  });
+
+  console.info(`🔵 地圖 markers 更新：${mapMarkers.length} 站`);
+}
+
+/**
+ * switchViewMode(mode)
+ * 切換 'cards' / 'map' 模式：控制 DOM 顯示與地圖初始化。
+ */
+function switchViewMode(mode) {
+  if (mode === viewMode) return;
+  viewMode = mode;
+
+  // 切換時清空所有卡片互動狀態，防止殘留 tooltip 或 hover 顯示
+  selectedCard = -1;
+  hoveredCard  = -1;
+  hideTooltip();
+
+  const canvasWrap = document.getElementById('canvas-wrap');
+  const mapWrap    = document.getElementById('map-wrap');
+  const btnCards   = document.getElementById('btn-cards');
+  const btnMap     = document.getElementById('btn-map');
+
+  if (mode === 'map') {
+    canvasWrap.style.display = 'none';
+    mapWrap.classList.remove('hidden');
+    btnCards.classList.remove('active');
+    btnMap.classList.add('active');
+    // 第一次進地圖模式：先取座標，再初始化地圖
+    if (!mapReady) {
+      fetchCWACoords().then(() => initMap());
+    } else {
+      leafletMap.invalidateSize();
+      updateMapMarkers();
+    }
+  } else {
+    mapWrap.classList.add('hidden');
+    canvasWrap.style.display = '';
+    btnMap.classList.remove('active');
+    btnCards.classList.add('active');
   }
 }
 
@@ -1000,3 +1226,7 @@ document.querySelectorAll('.chip').forEach(btn => {
     applyFilterSort();
   });
 });
+
+// View toggle buttons
+document.getElementById('btn-cards')?.addEventListener('click', () => switchViewMode('cards'));
+document.getElementById('btn-map')?.addEventListener('click',   () => switchViewMode('map'));
