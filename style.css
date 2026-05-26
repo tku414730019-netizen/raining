@@ -359,13 +359,16 @@ html, body {
   position: fixed;
   top: calc(var(--toolbar-h) + var(--statbar-h) + var(--filterbar-h));
   left: 0; right: 0;
-  bottom: var(--footer-h);
+  bottom: calc(var(--footer-h) + 44px);  /* 44px = #view-toggle-bar height */
   overflow: hidden;
+  z-index: 1;   /* 明確低於 toggle-bar (z-index:101) */
 }
 #canvas-wrap canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+  position: relative;
+  z-index: 1;
 }
 
 /* ═══════════════════════════════════════
@@ -474,4 +477,203 @@ html, body {
 
 @media (max-width: 420px) {
   #status-badge { display: none; }
+}
+
+/* ═══════════════════════════════════════
+   PROXY PROGRESS DOTS (loading overlay)
+═══════════════════════════════════════ */
+.loader-proxy-list {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  align-items: center;
+  justify-content: center;
+}
+.px-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--teal-100);
+  border: 1.5px solid var(--border);
+  transition: background 0.3s, border-color 0.3s, transform 0.2s;
+}
+.px-dot.trying {
+  background: var(--sky-400);
+  border-color: var(--sky-500);
+  animation: pulse-dot 0.8s ease-in-out infinite;
+}
+.px-dot.failed {
+  background: #fca5a5;
+  border-color: #ef4444;
+}
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%       { transform: scale(1.4); opacity: 0.7; }
+}
+
+/* ═══════════════════════════════════════
+   DATA TIME BADGE  (#filter-bar 右側)
+═══════════════════════════════════════ */
+#data-time {
+  margin-left: auto;          /* 推到最右側 */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;                   /* 各 span 之間固定間距 */
+  padding: 3px 14px 3px 10px;
+  border-radius: 20px;
+  font-family: 'Share Tech Mono', monospace;  /* 整體統一 mono 字型 */
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background 0.3s, color 0.3s;
+  flex-shrink: 0;
+}
+
+/* 正常狀態：藍綠色調 */
+#data-time.data-time-ok {
+  background: rgba(45, 212, 191, 0.10);
+  border: 1px solid rgba(45, 212, 191, 0.30);
+  color: var(--teal-600);
+}
+
+/* 資料過舊（> 30 分鐘）：橘色警示 */
+#data-time.data-time-stale {
+  background: rgba(249, 115, 22, 0.08);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  color: #c2410c;
+  animation: stale-pulse 2.5s ease-in-out infinite;
+}
+@keyframes stale-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+.dt-icon  { font-size: 11px; flex-shrink: 0; }
+.dt-label {
+  font-family: 'Share Tech Mono', monospace;  /* 明確繼承，不被 Noto Sans 覆蓋 */
+  color: var(--txt-muted);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.dt-sep   { color: var(--txt-xmuted); user-select: none; }   /* 分隔線 | */
+.dt-time  { font-weight: 600; letter-spacing: 0.04em; }
+.dt-ago   {
+  opacity: 0.72;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.dt-ago::before { content: '('; }
+.dt-ago::after  { content: ')'; }
+
+/* ═══════════════════════════════════════
+   MAP CONTAINER
+═══════════════════════════════════════ */
+#map-wrap {
+  position: fixed;
+  top: calc(var(--toolbar-h) + var(--statbar-h) + var(--filterbar-h));
+  left: 0; right: 0;
+  bottom: calc(var(--footer-h) + 44px);  /* 44px = toggle-bar height */
+  z-index: 50;  /* 高於 canvas-wrap(1)，低於 toggle-bar(101) */
+}
+#map-wrap.hidden { display: none; }
+
+/* Override Leaflet attribution to fit theme */
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  background: rgba(255,255,255,0.75) !important;
+}
+
+/* Station circle popup */
+.rain-popup .leaflet-popup-content-wrapper {
+  background: rgba(255,255,255,0.96);
+  border: 1.5px solid var(--border-dark, #99d4d0);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(20,184,166,0.18);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #3d6a6a;
+  padding: 0;
+}
+.rain-popup .leaflet-popup-tip {
+  background: var(--border-dark, #99d4d0);
+}
+.rain-popup-inner { padding: 10px 14px; line-height: 1.8; }
+.rain-popup-name  {
+  font-family: 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e3a3a;
+  margin-bottom: 4px;
+}
+.rain-popup-divider {
+  border: none;
+  border-top: 1px solid #c5e8e6;
+  margin: 5px 0;
+}
+.rain-popup-level { font-weight: 700; }
+
+/* ═══════════════════════════════════════
+   VIEW TOGGLE BAR
+═══════════════════════════════════════ */
+#view-toggle-bar {
+  position: fixed;
+  bottom: var(--footer-h);
+  left: 0; right: 0;
+  height: 44px;
+  background: var(--bg-panel);
+  border-top: 2px solid var(--teal-200, #99e4e0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 101;  /* 高於所有內容層 */
+  box-shadow: 0 -4px 16px rgba(20,184,166,0.14);
+  /* 確保接收點擊事件 */
+  pointer-events: auto;
+}
+
+.view-btn {
+  height: 30px;
+  padding: 0 20px;
+  border-radius: 15px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--txt-secondary);
+  font-family: 'Nunito', 'Noto Sans TC', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+}
+.view-btn:hover {
+  border-color: var(--teal-400);
+  color: var(--teal-600);
+  background: rgba(45,212,191,0.08);
+}
+.view-btn.active {
+  background: var(--teal-500);
+  border-color: var(--teal-500);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(20,184,166,0.30);
+}
+.vb-icon { font-size: 13px; }
+
+/* canvas-wrap bottom already set in main definition */
+
+/* ═══════════════════════════════════════
+   LEAFLET CUSTOM TOOLTIP
+═══════════════════════════════════════ */
+.rain-tooltip.leaflet-tooltip {
+  background: rgba(255,255,255,0.97);
+  border: 1.5px solid #c5e8e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(20,184,166,0.18);
+  padding: 8px 12px;
+  pointer-events: none;
+}
+.rain-tooltip.leaflet-tooltip-top::before {
+  border-top-color: #c5e8e6;
 }
