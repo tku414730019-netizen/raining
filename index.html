@@ -12,6 +12,9 @@
     rel="stylesheet"
   />
 
+  <!-- Leaflet (Mappa-mundi 底層地圖引擎) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
   <!-- p5.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 
@@ -95,10 +98,24 @@
     <button class="chip" data-level="4" style="--chip-color:#f97316">🌊 大雨</button>
     <button class="chip" data-level="5" style="--chip-color:#ef4444">🚨 豪雨</button>
     <div id="error-msg" class="hidden"></div>
+    <div id="data-time"></div>
   </div>
 
   <!-- ── Canvas container (p5.js mounts here) ── -->
   <div id="canvas-wrap"></div>
+
+  <!-- ── Map container (Leaflet / Mappa-mundi) ── -->
+  <div id="map-wrap" class="hidden"></div>
+
+  <!-- ── View toggle bar ── -->
+  <div id="view-toggle-bar">
+    <button class="view-btn active" id="btn-cards" title="卡片總覽模式">
+      <span class="vb-icon">▦</span> 總覽
+    </button>
+    <button class="view-btn" id="btn-map" title="地圖模式">
+      <span class="vb-icon">◎</span> 地圖
+    </button>
+  </div>
 
   <!-- ── Tooltip ── -->
   <div id="tooltip" class="hidden">
@@ -115,6 +132,10 @@
     資料來源：臺北市政府水利處 wic.gov.taipei｜授權：政府資料開放授權條款（OGDL）｜
     更新時間：<span id="last-update">—</span>
   </footer>
+
+  <!-- Leaflet + Mappa-mundi -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/mappa-mundi/dist/mappa.min.js"></script>
 
   <!-- Sketch -->
   <script src="sketch.js"></script>
